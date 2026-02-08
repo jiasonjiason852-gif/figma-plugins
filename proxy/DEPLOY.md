@@ -21,7 +21,6 @@
 5. 在 **Variables** 中添加环境变量：
    - `JZ_APP_KEY`：匠紫 appKey
    - `IMGBB_API_KEY`（可选）：[ImgBB 免费 API Key](https://api.imgbb.com/)，优先使用
-   - `SMMS_API_TOKEN`（可选）：[SM.MS Token](https://sm.ms)，ImgBB/ImgLink 不可用时备选
 
 ### 3. 修改插件
 
