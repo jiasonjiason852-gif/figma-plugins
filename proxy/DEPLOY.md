@@ -14,13 +14,13 @@
 1. 打开 [Railway Dashboard](https://railway.app/dashboard) → **New Project**
 2. 选择 **Deploy from GitHub repo** → 选中你的仓库
 3. 配置部署：
-   - **Root Directory**：填 `figma-plugins/proxy`
+   - **Root Directory**：填 `proxy`（仓库根目录为 figma-plugins 时）
    - **Build Command**：`npm install`（可留空，Railway 自动识别）
    - **Start Command**：`npm start`
 4. 点击 **Settings** → **Networking** → **Generate Domain**，生成公网域名（如 `xxx.railway.app`）
 5. 在 **Variables** 中添加环境变量：
    - `JZ_APP_KEY`：匠紫 appKey
-   - `PROXY_PUBLIC_URL`：`https://你的域名.railway.app`（与上一步生成的域名一致）
+   - `IMGBB_API_KEY`（可选）：[ImgBB 免费 API Key](https://api.imgbb.com/)，优先使用；不配置则默认用 ImgLink（免 Key）
 
 ### 3. 修改插件
 

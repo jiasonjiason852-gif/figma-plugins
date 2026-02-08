@@ -16,6 +16,7 @@ const JZ_APP_KEY = process.env.JZ_APP_KEY;
 const PROXY_PUBLIC_URL = process.env.PROXY_PUBLIC_URL; // 代理公网地址，用于生成 JZ 可访问的图片 URL
 const FORCE_DATA_URL = process.env.FORCE_DATA_URL === 'true'; // 强制 data URL，用于排查 ngrok 拉图失败
 const USE_TEMP_HOST = process.env.USE_TEMP_HOST === 'true'; // 使用临时图床（0x0.st/transfer.sh/catbox），需服务可用；默认用 ngrok
+const IMGBB_API_KEY = process.env.IMGBB_API_KEY; // 优先使用 ImgBB 图床，匠紫可稳定拉图（Railway 等部署时推荐）
 const JZ_BASE_URL = 'https://api.jiangziai.com/task';
 const JZ_UPSCALE_PATH = '/foreign/imageUpscale';
 const JZ_TASK_RESULT_PATH = process.env.JZ_TASK_RESULT_PATH || '/foreign/getApiJob';
@@ -119,7 +120,7 @@ async function pollTaskResult(jobId, maxAttempts = 60, intervalMs = 2000) {
     }, body);
   };
 
-  await new Promise((r) => setTimeout(r, 3000));
+  await new Promise((r) => setTimeout(r, 8000));
 
   for (let i = 0; i < maxAttempts; i++) {
     const attempts = [
@@ -183,6 +184,71 @@ async function pollTaskResult(jobId, maxAttempts = 60, intervalMs = 2000) {
 }
 
 const USE_CATBOX = process.env.USE_CATBOX === 'true'; // 使用 catbox.moe 替代 0x0.st
+const USE_IMGLINK = process.env.USE_IMGLINK !== 'false'; // 无 ImgBB 时默认用 ImgLink（免 API Key）
+
+/** ImgLink 上传，免 API Key，返回 direct_url */
+async function uploadToImgLink(imageBuffer) {
+  const boundary = '----ImgLink' + Math.random().toString(36).slice(2);
+  const CRLF = '\r\n';
+  const body = Buffer.concat([
+    Buffer.from(`--${boundary}${CRLF}Content-Disposition: form-data; name="file"; filename="image.png"${CRLF}Content-Type: image/png${CRLF}${CRLF}`),
+    imageBuffer,
+    Buffer.from(`${CRLF}--${boundary}--${CRLF}`),
+  ]);
+  const res = await request({
+    hostname: 'imglink.io',
+    port: 443,
+    path: '/upload',
+    method: 'POST',
+    protocol: 'https:',
+    headers: {
+      'Content-Type': `multipart/form-data; boundary=${boundary}`,
+      'Content-Length': body.length,
+    },
+  }, body);
+  const json = JSON.parse(res.body.toString());
+  const directUrl = json.images?.[0]?.direct_url;
+  if (!json.success || !directUrl) {
+    throw new Error('ImgLink 上传失败: ' + (json.error || JSON.stringify(json).slice(0, 100)));
+  }
+  return directUrl;
+}
+
+/**
+ * 使用 ImgBB 上传，返回公网 URL（匠紫可稳定拉图，推荐 Railway 部署使用）
+ * API: POST https://api.imgbb.com/1/upload
+ * 参数: key (必填), image (必填，base64/二进制/URL),
+ *       name (可选), expiration (可选，60-15552000 秒)
+ * 示例响应: { data: { url, image: { url }, ... }, success: true, status: 200 }
+ */
+async function uploadToImgbb(imageBuffer) {
+  const base64 = imageBuffer.toString('base64');
+  const boundary = '----ImgBB' + Math.random().toString(36).slice(2);
+  const CRLF = '\r\n';
+  const body = Buffer.concat([
+    Buffer.from(`--${boundary}${CRLF}Content-Disposition: form-data; name="key"${CRLF}${CRLF}${IMGBB_API_KEY}${CRLF}`),
+    Buffer.from(`--${boundary}${CRLF}Content-Disposition: form-data; name="image"${CRLF}${CRLF}`),
+    Buffer.from(base64),
+    Buffer.from(`${CRLF}--${boundary}--${CRLF}`),
+  ]);
+  const res = await request({
+    hostname: 'api.imgbb.com',
+    port: 443,
+    path: '/1/upload',
+    method: 'POST',
+    protocol: 'https:',
+    headers: {
+      'Content-Type': `multipart/form-data; boundary=${boundary}`,
+      'Content-Length': body.length,
+    },
+  }, body);
+  const json = JSON.parse(res.body.toString());
+  const url = json.data?.url || json.data?.image?.url;
+  if (!json.success || !url) {
+    throw new Error('ImgBB 上传失败: ' + (json.error?.message || json.data?.error?.message || JSON.stringify(json).slice(0, 100)));
+  }
+  return url;
+}
 
 /** 上传图片到临时图床获取公网 URL（免 ngrok，匠紫可稳定拉图） */
 async function uploadToTempHost(imageBuffer) {
@@ -325,7 +391,25 @@ const server = http.createServer(async (req, res) => {
 
   try {
     let imgUrl;
-    if (USE_TEMP_HOST) {
+    if (IMGBB_API_KEY) {
+      console.log('[img] 上传至 ImgBB 图床...');
+      imgUrl = await uploadToImgbb(imageBuffer);
+      console.log('[img] ImgBB 公网 URL:', imgUrl);
+    } else if (USE_IMGLINK) {
+      console.log('[img] 上传至 ImgLink 图床（免 API Key）...');
+      try {
+        imgUrl = await uploadToImgLink(imageBuffer);
+        console.log('[img] ImgLink 公网 URL:', imgUrl);
+      } catch (e) {
+        console.error('[img] ImgLink 失败:', e.message);
+        if (USE_TEMP_HOST) {
+          console.log('[img] 回退至 catbox/transfer...');
+          imgUrl = await uploadToTempHost(imageBuffer);
+        } else {
+          throw new Error('图床上传失败，请在 Railway 配置 IMGBB_API_KEY 或 USE_TEMP_HOST=true');
+        }
+      }
+    } else if (USE_TEMP_HOST) {
       console.log('[img] 上传至临时图床...');
       imgUrl = await uploadToTempHost(imageBuffer);
       console.log('[img] 公网 URL:', imgUrl);

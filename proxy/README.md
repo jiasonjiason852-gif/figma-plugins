@@ -18,15 +18,57 @@ npm start
 
 ## 图片公网 URL 获取方式
 
-匠紫 API 要求图片 URL 公网可访问。代理支持多种方式：
+匠紫 API 要求图片 URL 公网可访问。代理支持多种方式（按优先级）：
 
 | 方式 | 配置 | 说明 |
 |------|------|------|
-| **ngrok**（默认） | `PROXY_PUBLIC_URL` + 运行 `ngrok http 3030` | 免费版可能对匠紫拉图显示访问页，[付费可移除](https://ngrok.com/docs/pricing-limits/free-plan-limits) |
-| 临时图床 | `USE_TEMP_HOST=true` + `USE_CATBOX=true` | 上传至 catbox.moe，免 ngrok；需服务可用 |
-| Data URL | `FORCE_DATA_URL=true` | 匠紫 API 不支持，仅作排查用 |
+| **ImgLink**（默认） | `USE_IMGLINK=true` | 免 API Key，Railway 部署即用 |
+| **ImgBB** | `IMGBB_API_KEY` | 免费 Key，[申请](https://api.imgbb.com/)；ImgLink 失败时可配置 |
+| ngrok | `PROXY_PUBLIC_URL` + `ngrok http 3030` | 本地调试 |
+| 临时图床 | `USE_TEMP_HOST=true` | 0x0.st/catbox 等 |
+| Data URL | `FORCE_DATA_URL=true` | 匠紫不支持，仅排查用 |
 
-**ngrok 说明**：免费版对「程序化请求」无限制；若匠紫拉图失败，可尝试升级 ngrok 或部署代理到公网（Vercel/Railway）。
+**ImgBB API 示例响应**（`data.url` 为匠紫拉图所用）：
+```json
+{
+  "data": {
+    "id": "2ndCYJK",
+    "title": "c1f64245afb2",
+    "url_viewer": "https://ibb.co/2ndCYJK",
+    "url": "https://i.ibb.co/w04Prt6/c1f64245afb2.gif",
+    "display_url": "https://i.ibb.co/98W13PY/c1f64245afb2.gif",
+    "width": "1",
+    "height": "1",
+    "size": "42",
+    "time": "1552042565",
+    "expiration": "0",
+    "image": {
+      "filename": "c1f64245afb2.gif",
+      "name": "c1f64245afb2",
+      "mime": "image/gif",
+      "extension": "gif",
+      "url": "https://i.ibb.co/w04Prt6/c1f64245afb2.gif"
+    },
+    "thumb": {
+      "filename": "c1f64245afb2.gif",
+      "name": "c1f64245afb2",
+      "mime": "image/gif",
+      "extension": "gif",
+      "url": "https://i.ibb.co/2ndCYJK/c1f64245afb2.gif"
+    },
+    "medium": {
+      "filename": "c1f64245afb2.gif",
+      "name": "c1f64245afb2",
+      "mime": "image/gif",
+      "extension": "gif",
+      "url": "https://i.ibb.co/98W13PY/c1f64245afb2.gif"
+    },
+    "delete_url": "https://ibb.co/2ndCYJK/670a7e48ddcb85ac340c717a41047e5c"
+  },
+  "success": true,
+  "status": 200
+}
+```
 
 ## 匠紫 API 说明
 

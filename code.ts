@@ -4,7 +4,7 @@
  * 代理地址：本地调试用 localhost，生产部署后改为实际地址
  * 付费：30 天试用，$9.9/年，发布时在 Figma Community 设置价格
  */
-const JZ_PROXY_URL = "http://localhost:3030/api/hd";
+const JZ_PROXY_URL = "https://figma-plugins-production.up.railway.app/api/hd";
 
 const TRIAL_DAYS = 30;
 const SECONDS_PER_DAY = 60 * 60 * 24;
