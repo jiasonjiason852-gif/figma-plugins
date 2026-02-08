@@ -22,8 +22,9 @@ npm start
 
 | 方式 | 配置 | 说明 |
 |------|------|------|
+| **ImgBB** | `IMGBB_API_KEY` | 优先使用，[申请](https://api.imgbb.com/) |
+| **SM.MS** | `SMMS_API_TOKEN` | 备选，[申请](https://sm.ms) |
 | **ImgLink**（默认） | `USE_IMGLINK=true` | 免 API Key，Railway 部署即用 |
-| **ImgBB** | `IMGBB_API_KEY` | 免费 Key，[申请](https://api.imgbb.com/)；ImgLink 失败时可配置 |
 | ngrok | `PROXY_PUBLIC_URL` + `ngrok http 3030` | 本地调试 |
 | 临时图床 | `USE_TEMP_HOST=true` | 0x0.st/catbox 等 |
 | Data URL | `FORCE_DATA_URL=true` | 匠紫不支持，仅排查用 |

@@ -17,6 +17,7 @@ const PROXY_PUBLIC_URL = process.env.PROXY_PUBLIC_URL; // 代理公网地址，�
 const FORCE_DATA_URL = process.env.FORCE_DATA_URL === 'true'; // 强制 data URL，用于排查 ngrok 拉图失败
 const USE_TEMP_HOST = process.env.USE_TEMP_HOST === 'true'; // 使用临时图床（0x0.st/transfer.sh/catbox），需服务可用；默认用 ngrok
 const IMGBB_API_KEY = process.env.IMGBB_API_KEY; // 优先使用 ImgBB 图床，匠紫可稳定拉图（Railway 等部署时推荐）
+const SMMS_API_TOKEN = process.env.SMMS_API_TOKEN; // SM.MS 图床（备选，https://sm.ms 注册获取）
 const JZ_BASE_URL = 'https://api.jiangziai.com/task';
 const JZ_UPSCALE_PATH = '/foreign/imageUpscale';
 const JZ_TASK_RESULT_PATH = process.env.JZ_TASK_RESULT_PATH || '/foreign/getApiJob';
@@ -120,7 +121,8 @@ async function pollTaskResult(jobId, maxAttempts = 60, intervalMs = 2000) {
     }, body);
   };
 
-  await new Promise((r) => setTimeout(r, 8000));
+  // 匠紫拉图+处理需要时间，延长初始等待
+  await new Promise((r) => setTimeout(r, 15000));
 
   for (let i = 0; i < maxAttempts; i++) {
     const attempts = [
@@ -172,12 +174,18 @@ async function pollTaskResult(jobId, maxAttempts = 60, intervalMs = 2000) {
       if (status === 3) throw new Error('任务失败');
     }
 
-    if (lastErr && lastErr.message.includes('不存在') && i < 15) {
+    // 「指定的任务不存在」通常因匠紫无法拉取图床 URL，多给重试机会
+    if (lastErr && lastErr.message.includes('不存在') && i < 40) {
       console.log(`[poll] 第${i + 1}次 任务不存在，${intervalMs}ms 后重试`);
       await new Promise((r) => setTimeout(r, intervalMs));
       continue;
     }
-    if (lastErr) throw lastErr;
+    if (lastErr) {
+      const msg = lastErr.message.includes('不存在')
+        ? '指定的任务不存在：匠紫可能无法拉取当前图床 URL，请尝试配置 IMGBB_API_KEY（https://api.imgbb.com/）或 SMMS_API_TOKEN（https://sm.ms）'
+        : lastErr.message;
+      throw new Error(msg);
+    }
     await new Promise((r) => setTimeout(r, intervalMs));
   }
   throw new Error('任务超时');
@@ -246,6 +254,35 @@ async function uploadToImgbb(imageBuffer) {
   const url = json.data?.url || json.data?.image?.url;
   if (!json.success || !url) {
     throw new Error('ImgBB 上传失败: ' + (json.error?.message || json.data?.error?.message || JSON.stringify(json).slice(0, 100)));
+  }
+  return url;
+}
+
+/** SM.MS 上传，返回公网 URL（备选图床，需 SMMS_API_TOKEN） */
+async function uploadToSmms(imageBuffer) {
+  const boundary = '----SMMS' + Math.random().toString(36).slice(2);
+  const CRLF = '\r\n';
+  const body = Buffer.concat([
+    Buffer.from(`--${boundary}${CRLF}Content-Disposition: form-data; name="smfile"; filename="image.png"${CRLF}Content-Type: image/png${CRLF}${CRLF}`),
+    imageBuffer,
+    Buffer.from(`${CRLF}--${boundary}--${CRLF}`),
+  ]);
+  const res = await request({
+    hostname: 'sm.ms',
+    port: 443,
+    path: '/api/v2/upload',
+    method: 'POST',
+    protocol: 'https:',
+    headers: {
+      'Content-Type': `multipart/form-data; boundary=${boundary}`,
+      'Content-Length': body.length,
+      'Authorization': SMMS_API_TOKEN.startsWith('Bearer ') ? SMMS_API_TOKEN : 'Bearer ' + SMMS_API_TOKEN.trim(),
+    },
+  }, body);
+  const json = JSON.parse(res.body.toString());
+  const url = json.data?.url;
+  if (!json.success || !url) {
+    throw new Error('SM.MS 上传失败: ' + (json.message || JSON.stringify(json).slice(0, 100)));
   }
   return url;
 }
@@ -395,6 +432,10 @@ const server = http.createServer(async (req, res) => {
       console.log('[img] 上传至 ImgBB 图床...');
       imgUrl = await uploadToImgbb(imageBuffer);
       console.log('[img] ImgBB 公网 URL:', imgUrl);
+    } else if (SMMS_API_TOKEN) {
+      console.log('[img] 上传至 SM.MS 图床...');
+      imgUrl = await uploadToSmms(imageBuffer);
+      console.log('[img] SM.MS 公网 URL:', imgUrl);
     } else if (USE_IMGLINK) {
       console.log('[img] 上传至 ImgLink 图床（免 API Key）...');
       try {
@@ -402,11 +443,14 @@ const server = http.createServer(async (req, res) => {
         console.log('[img] ImgLink 公网 URL:', imgUrl);
       } catch (e) {
         console.error('[img] ImgLink 失败:', e.message);
-        if (USE_TEMP_HOST) {
+        if (SMMS_API_TOKEN) {
+          console.log('[img] 回退至 SM.MS...');
+          imgUrl = await uploadToSmms(imageBuffer);
+        } else if (USE_TEMP_HOST) {
           console.log('[img] 回退至 catbox/transfer...');
           imgUrl = await uploadToTempHost(imageBuffer);
         } else {
-          throw new Error('图床上传失败，请在 Railway 配置 IMGBB_API_KEY 或 USE_TEMP_HOST=true');
+          throw new Error('图床上传失败，请在 Railway 配置 IMGBB_API_KEY、SMMS_API_TOKEN 或 USE_TEMP_HOST=true');
         }
       }
     } else if (USE_TEMP_HOST) {
@@ -427,7 +471,12 @@ const server = http.createServer(async (req, res) => {
         console.log('[img] ImgLink 公网 URL:', imgUrl);
       } catch (e) {
         console.error('[img] ImgLink 失败:', e.message);
-        throw new Error('Railway 部署须配置 IMGBB_API_KEY: https://api.imgbb.com/');
+        if (SMMS_API_TOKEN) {
+          console.log('[img] 回退至 SM.MS...');
+          imgUrl = await uploadToSmms(imageBuffer);
+        } else {
+          throw new Error('Railway 部署须配置 IMGBB_API_KEY（https://api.imgbb.com/）或 SMMS_API_TOKEN（https://sm.ms）');
+        }
       }
     } else {
       const base64 = imageBuffer.toString('base64');
