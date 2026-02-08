@@ -6,9 +6,9 @@
  */
 
 require('dotenv').config();
-
 const http = require('http');
 const https = require('https');
+const crypto = require('crypto');
 const { IncomingForm } = require('formidable');
 
 const PORT = process.env.PORT || 3030;
@@ -17,11 +17,13 @@ const PROXY_PUBLIC_URL = process.env.PROXY_PUBLIC_URL; // 代理公网地址，�
 const FORCE_DATA_URL = process.env.FORCE_DATA_URL === 'true'; // 强制 data URL，用于排查 ngrok 拉图失败
 const USE_TEMP_HOST = process.env.USE_TEMP_HOST === 'true'; // 使用临时图床（0x0.st/transfer.sh/catbox），需服务可用；默认用 ngrok
 const IMGBB_API_KEY = process.env.IMGBB_API_KEY; // 优先使用 ImgBB 图床，匠紫可稳定拉图（Railway 等部署时推荐）
-const JZ_BASE_URL = 'https://api.jiangziai.com/task';
-const JZ_UPSCALE_PATH = '/foreign/imageUpscale';
-const JZ_TASK_RESULT_PATH = process.env.JZ_TASK_RESULT_PATH || '/foreign/getApiJob';
-const JZ_TASK_RESULT_ALT = '/foreign/taskResult'; // 备用：GET ?jobId=xxx
-
+const UPYUN_BUCKET = process.env.UPYUN_BUCKET; // 又拍云存储空间，国内 CDN 匠紫可稳定拉图
+const UPYUN_OPERATOR = process.env.UPYUN_OPERATOR; // 又拍云操作员名
+const UPYUN_PASSWORD = process.env.UPYUN_PASSWORD; // 又拍云操作员密码（明文，代码内会 MD5）
+const UPYUN_DOMAIN = process.env.UPYUN_DOMAIN; // 又拍云加速域名，不填则用 bucket.b0.upaiyun.com
+const JZ_BASE = 'https://api.jiangziai.com/task';
+const JZ_TASK_PATH = process.env.JZ_TASK_RESULT_PATH || '/foreign/getApiJob';
+const JZ_TASK_ALT = '/foreign/taskResult';
 const tempImages = new Map();
 
 if (!JZ_APP_KEY) {
@@ -72,7 +74,7 @@ async function submitUpscale(imgDataUrl, ratio = 2) {
     imgUrl: imgDataUrl,
     ratio: Math.min(4, Math.max(1, ratio)),
   });
-  const u = new URL(JZ_BASE_URL + JZ_UPSCALE_PATH);
+  const u = new URL(JZ_BASE + '/foreign/imageUpscale');
   const res = await request({
     hostname: u.hostname,
     port: 443,
@@ -103,7 +105,7 @@ async function submitUpscale(imgDataUrl, ratio = 2) {
 async function pollTaskResult(jobId, maxAttempts = 60, intervalMs = 2000) {
   const tryQuery = async (path, method, body) => {
     const fullPath = path.startsWith('/') ? path : '/' + path;
-    const url = JZ_BASE_URL + fullPath;
+    const url = JZ_BASE + fullPath;
     const u = new URL(url);
     const headers = { appKey: JZ_APP_KEY };
     if (body) {
@@ -125,9 +127,9 @@ async function pollTaskResult(jobId, maxAttempts = 60, intervalMs = 2000) {
 
   for (let i = 0; i < maxAttempts; i++) {
     const attempts = [
-      () => tryQuery(JZ_TASK_RESULT_PATH, 'POST', JSON.stringify({ jobId })),
-      () => tryQuery(JZ_TASK_RESULT_ALT + '?jobId=' + encodeURIComponent(jobId), 'GET', null),
-      () => tryQuery(JZ_TASK_RESULT_ALT + '?taskId=' + encodeURIComponent(jobId), 'GET', null),
+      () => tryQuery(JZ_TASK_PATH, 'POST', JSON.stringify({ jobId })),
+      () => tryQuery(JZ_TASK_ALT + '?jobId=' + encodeURIComponent(jobId), 'GET', null),
+      () => tryQuery(JZ_TASK_ALT + '?taskId=' + encodeURIComponent(jobId), 'GET', null),
     ];
 
     let lastErr = null;
@@ -159,18 +161,12 @@ async function pollTaskResult(jobId, maxAttempts = 60, intervalMs = 2000) {
         if (json.msg && json.msg.includes('不存在')) continue;
         throw lastErr;
       }
-      const data = json.data || {};
-      const status = data.jobStatus;
-      const result = data.result;
-      if (status === 1 || status === 2) {
-        if (result?.data?.imgUrl) return result.data.imgUrl;
-        if (result?.data && Array.isArray(result.data) && result.data.length > 0) return result.data[0];
-        if (result?.data && typeof result.data === 'string') return result.data;
-        if (result && (result.url || result.imgUrl || result.imageUrl)) return result.url || result.imgUrl || result.imageUrl;
-        if (result && typeof result === 'string') return result;
-        if (result?.outputUrl) return result.outputUrl;
-      }
+      const { jobStatus: status, result } = json.data || {};
       if (status === 3) throw new Error('任务失败');
+      if (status === 1 || status === 2) {
+        const url = result?.data?.imgUrl ?? (Array.isArray(result?.data) ? result.data[0] : result?.data) ?? result?.url ?? result?.imgUrl ?? result?.imageUrl ?? (typeof result === 'string' ? result : null) ?? result?.outputUrl;
+        if (url) return url;
+      }
     }
 
     // 「指定的任务不存在」通常因匠紫无法拉取图床 URL，多给重试机会
@@ -181,7 +177,7 @@ async function pollTaskResult(jobId, maxAttempts = 60, intervalMs = 2000) {
     }
     if (lastErr) {
       const msg = lastErr.message.includes('不存在')
-        ? '指定的任务不存在：匠紫可能无法拉取当前图床 URL，请尝试配置 IMGBB_API_KEY（https://api.imgbb.com/）'
+        ? '指定的任务不存在：匠紫可能无法拉取当前图床 URL，请尝试配置 UPYUN_* 或 IMGBB_API_KEY'
         : lastErr.message;
       throw new Error(msg);
     }
@@ -191,35 +187,6 @@ async function pollTaskResult(jobId, maxAttempts = 60, intervalMs = 2000) {
 }
 
 const USE_CATBOX = process.env.USE_CATBOX === 'true'; // 使用 catbox.moe 替代 0x0.st
-const USE_IMGLINK = process.env.USE_IMGLINK !== 'false'; // 无 ImgBB 时默认用 ImgLink（免 API Key）
-
-/** ImgLink 上传，免 API Key，返回 direct_url */
-async function uploadToImgLink(imageBuffer) {
-  const boundary = '----ImgLink' + Math.random().toString(36).slice(2);
-  const CRLF = '\r\n';
-  const body = Buffer.concat([
-    Buffer.from(`--${boundary}${CRLF}Content-Disposition: form-data; name="file"; filename="image.png"${CRLF}Content-Type: image/png${CRLF}${CRLF}`),
-    imageBuffer,
-    Buffer.from(`${CRLF}--${boundary}--${CRLF}`),
-  ]);
-  const res = await request({
-    hostname: 'imglink.io',
-    port: 443,
-    path: '/upload',
-    method: 'POST',
-    protocol: 'https:',
-    headers: {
-      'Content-Type': `multipart/form-data; boundary=${boundary}`,
-      'Content-Length': body.length,
-    },
-  }, body);
-  const json = JSON.parse(res.body.toString());
-  const directUrl = json.images?.[0]?.direct_url;
-  if (!json.success || !directUrl) {
-    throw new Error('ImgLink 上传失败: ' + (json.error || JSON.stringify(json).slice(0, 100)));
-  }
-  return directUrl;
-}
 
 /**
  * 使用 ImgBB 上传，返回公网 URL（匠紫可稳定拉图，推荐 Railway 部署使用）
@@ -255,6 +222,65 @@ async function uploadToImgbb(imageBuffer) {
     throw new Error('ImgBB 上传失败: ' + (json.error?.message || json.data?.error?.message || JSON.stringify(json).slice(0, 100)));
   }
   return url;
+}
+
+/**
+ * 又拍云 FORM API 上传，返回公网 URL（国内 CDN，匠紫可稳定拉图）
+ * 文档：https://docs.upyun.com/api/form_api/
+ */
+async function uploadToUpyun(imageBuffer) {
+  const bucket = UPYUN_BUCKET;
+  const operator = UPYUN_OPERATOR;
+  const passwordMd5 = crypto.createHash('md5').update(UPYUN_PASSWORD || '', 'utf8').digest('hex');
+  const uri = '/' + bucket;
+  const method = 'POST';
+  const now = Math.floor(Date.now() / 1000);
+  const expiration = now + 30 * 60; // 30 分钟
+  const date = new Date().toUTCString();
+  const saveKey = '/hd/' + crypto.randomBytes(16).toString('hex') + '.png';
+  const policyObj = { bucket, 'save-key': saveKey, expiration };
+  const policy = Buffer.from(JSON.stringify(policyObj)).toString('base64');
+  const signStr = [method, uri, date, policy, ''].join('&');
+  const signature = crypto.createHmac('sha1', passwordMd5).update(signStr, 'utf8').digest('base64');
+  const authorization = 'UPYUN ' + operator + ':' + signature;
+
+  const boundary = '----Upyun' + crypto.randomBytes(8).toString('hex');
+  const CRLF = '\r\n';
+  const body = Buffer.concat([
+    Buffer.from(`--${boundary}${CRLF}Content-Disposition: form-data; name="policy"${CRLF}${CRLF}${policy}${CRLF}`),
+    Buffer.from(`--${boundary}${CRLF}Content-Disposition: form-data; name="authorization"${CRLF}${CRLF}${authorization}${CRLF}`),
+    Buffer.from(`--${boundary}${CRLF}Content-Disposition: form-data; name="file"; filename="image.png"${CRLF}Content-Type: image/png${CRLF}${CRLF}`),
+    imageBuffer,
+    Buffer.from(`${CRLF}--${boundary}--${CRLF}`),
+  ]);
+
+  const res = await request({
+    hostname: 'v0.api.upyun.com',
+    port: 443,
+    path: uri,
+    method: 'POST',
+    protocol: 'https:',
+    headers: {
+      'Content-Type': `multipart/form-data; boundary=${boundary}`,
+      'Content-Length': body.length,
+    },
+  }, body);
+
+  const bodyStr = res.body.toString();
+  if (res.statusCode !== 200) {
+    throw new Error('又拍云上传失败: ' + (bodyStr.slice(0, 200) || res.statusCode));
+  }
+  let path = saveKey;
+  try {
+    const j = JSON.parse(bodyStr);
+    if (j.url) path = j.url;
+  } catch (_) {
+    const urlMatch = bodyStr.match(/url=([^\s&]+)/);
+    if (urlMatch) path = decodeURIComponent(urlMatch[1].replace(/\+/g, ' '));
+  }
+  const domain = UPYUN_DOMAIN || `${bucket}.b0.upaiyun.com`;
+  const baseUrl = domain.startsWith('http') ? domain : `https://${domain}`;
+  return baseUrl.replace(/\/$/, '') + (path.startsWith('/') ? path : '/' + path);
 }
 
 /** 上传图片到临时图床获取公网 URL（免 ngrok，匠紫可稳定拉图） */
@@ -398,44 +424,26 @@ const server = http.createServer(async (req, res) => {
 
   try {
     let imgUrl;
-    if (IMGBB_API_KEY) {
+    if (UPYUN_BUCKET && UPYUN_OPERATOR && UPYUN_PASSWORD) {
+      console.log('[img] 上传至又拍云...');
+      imgUrl = await uploadToUpyun(imageBuffer);
+      console.log('[img] 又拍云公网 URL:', imgUrl);
+    } else if (IMGBB_API_KEY) {
       console.log('[img] 上传至 ImgBB 图床...');
       imgUrl = await uploadToImgbb(imageBuffer);
       console.log('[img] ImgBB 公网 URL:', imgUrl);
-    } else if (USE_IMGLINK) {
-      console.log('[img] 上传至 ImgLink 图床（免 API Key）...');
-      try {
-        imgUrl = await uploadToImgLink(imageBuffer);
-        console.log('[img] ImgLink 公网 URL:', imgUrl);
-      } catch (e) {
-        console.error('[img] ImgLink 失败:', e.message);
-        if (USE_TEMP_HOST) {
-          console.log('[img] 回退至 catbox/transfer...');
-          imgUrl = await uploadToTempHost(imageBuffer);
-        } else {
-          throw new Error('图床上传失败，请在 Railway 配置 IMGBB_API_KEY 或 USE_TEMP_HOST=true');
-        }
-      }
     } else if (USE_TEMP_HOST) {
       console.log('[img] 上传至临时图床...');
       imgUrl = await uploadToTempHost(imageBuffer);
       console.log('[img] 公网 URL:', imgUrl);
     } else if (PROXY_PUBLIC_URL?.trim() && !FORCE_DATA_URL && !PROXY_PUBLIC_URL.includes('railway.app')) {
-      const crypto = require('crypto');
       const id = crypto.randomUUID();
       tempImages.set(id, imageBuffer);
       setTimeout(() => tempImages.delete(id), 5 * 60 * 1000);
       imgUrl = `${PROXY_PUBLIC_URL.replace(/\/$/, '')}/temp/${id}`;
       console.log('[img] 使用 ngrok 公网 URL:', imgUrl);
     } else if (PROXY_PUBLIC_URL?.includes('railway.app')) {
-      console.log('[img] Railway 多实例 /temp/ 不可用，改用 ImgLink...');
-      try {
-        imgUrl = await uploadToImgLink(imageBuffer);
-        console.log('[img] ImgLink 公网 URL:', imgUrl);
-      } catch (e) {
-        console.error('[img] ImgLink 失败:', e.message);
-        throw new Error('Railway 部署须配置 IMGBB_API_KEY：https://api.imgbb.com/');
-      }
+      throw new Error('Railway 部署须配置 UPYUN_* 或 IMGBB_API_KEY：https://api.imgbb.com/');
     } else {
       const base64 = imageBuffer.toString('base64');
       imgUrl = `data:image/png;base64,${base64}`;

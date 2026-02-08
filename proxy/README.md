@@ -22,8 +22,8 @@ npm start
 
 | 方式 | 配置 | 说明 |
 |------|------|------|
-| **ImgBB** | `IMGBB_API_KEY` | 优先使用，[申请](https://api.imgbb.com/) |
-| **ImgLink**（默认） | `USE_IMGLINK=true` | 免 API Key，Railway 部署即用 |
+| **又拍云** | `UPYUN_BUCKET` + `UPYUN_OPERATOR` + `UPYUN_PASSWORD` | 国内 CDN，匠紫可稳定拉图，详见 [UPYUN_SETUP.md](UPYUN_SETUP.md) |
+| **ImgBB** | `IMGBB_API_KEY` | [申请](https://api.imgbb.com/) |
 | ngrok | `PROXY_PUBLIC_URL` + `ngrok http 3030` | 本地调试 |
 | 临时图床 | `USE_TEMP_HOST=true` | 0x0.st/catbox 等 |
 | Data URL | `FORCE_DATA_URL=true` | 匠紫不支持，仅排查用 |

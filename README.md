@@ -55,9 +55,16 @@ npm run watch
 
 调试流程示例：选「模拟未付费」→「模拟试用已到期」→ 再点主菜单「Image HD Plus」→ 会弹出支付校验。
 
-### 6. 热重载（可选）
+### 6. 本地调试「修改不生效」怎么办？
 
-在 Figma 中启用 **Settings** → **Plugins** → **Hot reload**，修改代码并重新编译后插件会自动更新。
+插件由 `code.ts` 编译得到 `code.js`，修改后需重新编译才能生效：
+
+1. **保持监听编译**：`npm run watch`，修改 `code.ts` 或 `ui.html` 保存后会自动编译
+2. **手动编译**：修改后执行 `npm run build`
+3. **让 Figma 加载新代码**（任选其一）：
+   - 右键插件菜单 → **Reload plugin**（推荐）
+   - 或在 Figma **Settings** → **Plugins** → 开启 **Hot reload**，编译后自动更新
+4. 若仍不生效：关闭插件面板，重新从 **Plugins** → **Development** → **Image HD Plus** 打开
 
 ## Image HD Plus 插件说明
 
@@ -98,9 +105,8 @@ figma-plugins/
    - 描述：简洁说明功能与使用方式
 
 3. **付费设置**（发布时在 Figma Community 配置）
-   - 30 天免费试用
-   - 订阅价格：$9.9/年（发布时在 Figma 后台设置）
-   - 到期后需续费才能继续使用
+   - 30 天免費試用
+   - 試用期滿後一次性支付 $9.9，不限期使用（發布時在 Figma 後台設定）
 
 4. **检查清单**
    - 核心功能完整且稳定
