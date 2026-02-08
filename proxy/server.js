@@ -413,13 +413,22 @@ const server = http.createServer(async (req, res) => {
       console.log('[img] 上传至临时图床...');
       imgUrl = await uploadToTempHost(imageBuffer);
       console.log('[img] 公网 URL:', imgUrl);
-    } else if (PROXY_PUBLIC_URL?.trim() && !FORCE_DATA_URL) {
+    } else if (PROXY_PUBLIC_URL?.trim() && !FORCE_DATA_URL && !PROXY_PUBLIC_URL.includes('railway.app')) {
       const crypto = require('crypto');
       const id = crypto.randomUUID();
       tempImages.set(id, imageBuffer);
       setTimeout(() => tempImages.delete(id), 5 * 60 * 1000);
       imgUrl = `${PROXY_PUBLIC_URL.replace(/\/$/, '')}/temp/${id}`;
-      console.log('[img] 使用 ngrok 公网 URL:', imgUrl.slice(0, 80) + '...');
+      console.log('[img] 使用 ngrok 公网 URL:', imgUrl);
+    } else if (PROXY_PUBLIC_URL?.includes('railway.app')) {
+      console.log('[img] Railway 多实例 /temp/ 不可用，改用 ImgLink...');
+      try {
+        imgUrl = await uploadToImgLink(imageBuffer);
+        console.log('[img] ImgLink 公网 URL:', imgUrl);
+      } catch (e) {
+        console.error('[img] ImgLink 失败:', e.message);
+        throw new Error('Railway 部署须配置 IMGBB_API_KEY: https://api.imgbb.com/');
+      }
     } else {
       const base64 = imageBuffer.toString('base64');
       imgUrl = `data:image/png;base64,${base64}`;
