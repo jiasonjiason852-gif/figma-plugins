@@ -1,0 +1,22 @@
+{
+  "name": "figma-plugin-dev",
+  "version": "1.0.0",
+  "description": "Figma 插件开发环境 - 支持本地开发与发布到 Figma 应用市场",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "lint": "eslint . --ext .ts",
+    "lint:fix": "eslint . --ext .ts --fix"
+  },
+  "keywords": ["figma", "plugin"],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@figma/eslint-plugin-figma-plugins": "^0.16.1",
+    "@figma/plugin-typings": "^1.102.0",
+    "@typescript-eslint/eslint-plugin": "^6.19.0",
+    "@typescript-eslint/parser": "^6.19.0",
+    "eslint": "^8.56.0",
+    "typescript": "^5.3.3"
+  }
+}

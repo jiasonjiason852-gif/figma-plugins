@@ -1,0 +1,16 @@
+{
+  "name": "image-hd-plus-proxy",
+  "version": "1.0.0",
+  "description": "JZ API 代理服务，API Key 仅存于此，不暴露在插件中",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node -r dotenv/config server.js",
+    "test": "node test-jz-api.js",
+    "test:direct": "node test-jz-direct.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.3.1",
+    "formidable": "^3.5.1"
+  }
+}

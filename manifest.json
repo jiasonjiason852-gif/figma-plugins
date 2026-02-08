@@ -1,0 +1,27 @@
+{
+  "name": "Image HD Plus",
+  "id": "image-hd-plus-plugin",
+  "api": "1.0.0",
+  "main": "code.js",
+  "ui": "ui.html",
+  "editorType": ["figma"],
+  "documentAccess": "dynamic-page",
+  "permissions": ["payments"],
+  "networkAccess": {
+    "allowedDomains": ["*"],
+    "reasoning": "需要连接 JZ API 进行图像高清化处理，发布前请在 code.ts 中配置实际 API 地址"
+  },
+  "menu": [
+    { "name": "Image HD Plus", "command": "main" },
+    { "separator": true },
+    {
+      "name": "Debug (支付调试)",
+      "menu": [
+        { "name": "模拟已付费", "command": "dev-set-paid" },
+        { "name": "模拟未付费", "command": "dev-set-unpaid" },
+        { "name": "模拟试用已到期", "command": "dev-simulate-expired" },
+        { "name": "清除试用到期模拟", "command": "dev-clear-expired" }
+      ]
+    }
+  ]
+}
